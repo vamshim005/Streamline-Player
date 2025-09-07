@@ -23,9 +23,40 @@ async function safeSend(tabId, msg) {
   }
 }
 
+// YouTube API search function with pagination support
+async function ytSearch(query, pageToken = null) {
+  const apiKey = "AIzaSyBYhOqQqRnQmJb0xBj4EP7iocDLwLfeDio";
+  const u = new URL("https://www.googleapis.com/youtube/v3/search");
+  u.search = new URLSearchParams({
+    part: "snippet",
+    type: "video",
+    maxResults: "25",        // pull more per page
+    q: query,
+    key: apiKey,
+    ...(pageToken ? { pageToken } : {})
+  });
+  const res = await fetch(u);
+  if (!res.ok) throw new Error("YouTube API error");
+  return res.json();
+}
+
+// Helper function to broadcast messages to all eligible tabs
+async function broadcast(msg) {
+  const tabs = await chrome.tabs.query({});
+  for (const t of tabs) {
+    if (t.id && isEligible(t.url)) await safeSend(t.id, msg);
+  }
+}
+
 // Initialize state on extension install
 chrome.runtime.onInstalled.addListener(async () => {
-  await setState({ playerOpen: false, videoList: [], currentVideoIndex: 0 });
+  await setState({ 
+    playerOpen: false, 
+    videoList: [], 
+    currentVideoIndex: 0, 
+    nextPageToken: null,
+    lastQuery: ""
+  });
 });
 
 // Listen for extension icon clicks to toggle the mini-player
@@ -49,66 +80,77 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "SEARCH_QUERY") {
     const query = message.query;
-    // Use YouTube Data API to search for videos matching the query
-    // NOTE: Replace 'YOUR_API_KEY' with an actual API key from Google Cloud Console.
-    const apiKey = "AIzaSyBYhOqQqRnQmJb0xBj4EP7iocDLwLfeDio";
-    const apiUrl = `https://www.googleapis.com/youtube/v3/search?` +
-                   `part=snippet&type=video&maxResults=5&q=${encodeURIComponent(query)}` +
-                   `&key=${apiKey}`;
-    fetch(apiUrl)
-      .then(res => res.json())
+    // Use the new ytSearch function with pagination support
+    ytSearch(query)
       .then(async (data) => {
-        // Parse the search results to get video IDs and titles
-        const videoList = data.items?.length > 0 ? data.items.map((item) => item.id.videoId) : [];
-        const currentVideoIndex = 0;
-        
-        // Persist the video list and index (clear if no results)
-        await setState({ videoList, currentVideoIndex });
+        // Parse the search results to get video IDs
+        const videoList = (data.items || []).map(i => i.id.videoId);
+        await setState({ 
+          videoList, 
+          currentVideoIndex: 0, 
+          nextPageToken: data.nextPageToken || null, 
+          lastQuery: query 
+        });
         
         if (videoList.length > 0) {
           const firstVideoId = videoList[0];
           // Notify all tabs' content scripts to load the first video result
-          const loadMsg = { type: "LOAD_VIDEO", videoId: firstVideoId };
-          chrome.tabs.query({}, async (tabs) => {
-            for (const t of tabs) {
-              if (t.id && isEligible(t.url)) await safeSend(t.id, loadMsg);
-            }
-          });
+          await broadcast({ type: "LOAD_VIDEO", videoId: firstVideoId });
         }
       })
       .catch(err => console.error("YouTube API error:", err));
-    // We can optionally sendResponse or return true to indicate async response, 
-    // but here we just fire-and-forget the API call.
     return false; // no response expected
   }
 
   if (message.type === "NAVIGATE") {
     // Handle next/previous video navigation from content script
     const direction = message.direction;
-    getState(['videoList', 'currentVideoIndex']).then(async (state) => {
-      const { videoList = [], currentVideoIndex = 0 } = state;
+    getState(['videoList', 'currentVideoIndex', 'nextPageToken', 'lastQuery']).then(async (state) => {
+      const { videoList = [], currentVideoIndex = 0, nextPageToken = null, lastQuery = "" } = state;
       if (!videoList.length) return;  // no videos available
       
       let newIndex = currentVideoIndex;
-      if (direction === "NEXT" && currentVideoIndex < videoList.length - 1) {
-        newIndex++;
+      
+      if (direction === "NEXT") {
+        if (currentVideoIndex < videoList.length - 1) {
+          // Move to next video in current list
+          newIndex++;
+        } else if (nextPageToken) {
+          // Fetch next page of results
+          try {
+            const data = await ytSearch(lastQuery, nextPageToken);
+            const more = (data.items || []).map(i => i.id.videoId);
+            const merged = videoList.concat(more);
+            newIndex = videoList.length; // first of the newly fetched items
+            await setState({ 
+              videoList: merged, 
+              currentVideoIndex: newIndex, 
+              nextPageToken: data.nextPageToken || null 
+            });
+          } catch (err) {
+            console.error("Error fetching next page:", err);
+            return;
+          }
+        } else {
+          // No more pages available
+          return;
+        }
       } else if (direction === "PREV" && currentVideoIndex > 0) {
         newIndex--;
       } else {
-        // If at the end or beginning of list, do nothing (or we could loop around)
+        // If at the beginning of list, do nothing
         return;
       }
       
-      // Persist the new index
-      await setState({ currentVideoIndex: newIndex });
+      // Persist the new index (if not already done in pagination)
+      if (direction !== "NEXT" || currentVideoIndex < videoList.length - 1) {
+        await setState({ currentVideoIndex: newIndex });
+      }
       
-      const newVideoId = videoList[newIndex];
-      const loadMsg = { type: "LOAD_VIDEO", videoId: newVideoId };
-      chrome.tabs.query({}, async (tabs) => {
-        for (const t of tabs) {
-          if (t.id && isEligible(t.url)) await safeSend(t.id, loadMsg);
-        }
-      });
+      // Get the current state to ensure we have the latest video list
+      const { videoList: vl, currentVideoIndex: idx } = await getState(['videoList', 'currentVideoIndex']);
+      const newVideoId = vl[idx];
+      await broadcast({ type: "LOAD_VIDEO", videoId: newVideoId });
     });
   }
 
