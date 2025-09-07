@@ -78,6 +78,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async
   }
 
+  if (message.type === "GET_CURRENT_VIDEO") {
+    chrome.storage.session.get(['videoList', 'currentVideoIndex']).then(s => {
+      const { videoList = [], currentVideoIndex = 0 } = s;
+      if (videoList.length > 0 && currentVideoIndex >= 0 && currentVideoIndex < videoList.length) {
+        sendResponse({ videoId: videoList[currentVideoIndex] });
+      } else {
+        sendResponse({ videoId: null });
+      }
+    });
+    return true; // async
+  }
+
   if (message.type === "SEARCH_QUERY") {
     const query = message.query;
     // Use the new ytSearch function with pagination support
@@ -160,7 +172,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // When a tab finishes loading and player is open, show it there too
 chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   if (info.status === "complete" && isEligible(tab?.url)) {
-    const { playerOpen } = await getState(['playerOpen']);
-    if (playerOpen) await safeSend(tabId, { type: "TOGGLE_PLAYER", isOpen: true });
+    const { playerOpen, videoList, currentVideoIndex } = await getState(['playerOpen', 'videoList', 'currentVideoIndex']);
+    if (playerOpen) {
+      // Send a single message that includes both toggle and video info
+      if (videoList && videoList.length > 0 && currentVideoIndex >= 0) {
+        const currentVideoId = videoList[currentVideoIndex];
+        await safeSend(tabId, { 
+          type: "TOGGLE_PLAYER", 
+          isOpen: true, 
+          videoId: currentVideoId 
+        });
+      } else {
+        await safeSend(tabId, { type: "TOGGLE_PLAYER", isOpen: true });
+      }
+    }
   }
+});
+
+// When user switches to a different tab, ensure the player is visible there too
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  const { playerOpen, videoList, currentVideoIndex } = await getState(['playerOpen', 'videoList', 'currentVideoIndex']);
+  if (playerOpen) {
+    const tab = await chrome.tabs.get(tabId);
+    if (isEligible(tab?.url)) {
+      // Send a single message that includes both toggle and video info
+      if (videoList && videoList.length > 0 && currentVideoIndex >= 0) {
+        const currentVideoId = videoList[currentVideoIndex];
+        await safeSend(tabId, { 
+          type: "TOGGLE_PLAYER", 
+          isOpen: true, 
+          videoId: currentVideoId 
+        });
+      } else {
+        await safeSend(tabId, { type: "TOGGLE_PLAYER", isOpen: true });
+      }
+    }
+  }
+});
+
+// When a new tab is created, ensure it gets the current player state if player is open
+chrome.tabs.onCreated.addListener(async (tab) => {
+  // Wait a bit for the tab to initialize, then check if player should be shown
+  setTimeout(async () => {
+    const { playerOpen, videoList, currentVideoIndex } = await getState(['playerOpen', 'videoList', 'currentVideoIndex']);
+    if (playerOpen && isEligible(tab?.url)) {
+      // Send a single message that includes both toggle and video info
+      if (videoList && videoList.length > 0 && currentVideoIndex >= 0) {
+        const currentVideoId = videoList[currentVideoIndex];
+        await safeSend(tab.id, { 
+          type: "TOGGLE_PLAYER", 
+          isOpen: true, 
+          videoId: currentVideoId 
+        });
+      } else {
+        await safeSend(tab.id, { type: "TOGGLE_PLAYER", isOpen: true });
+      }
+    }
+  }, 1000); // Wait 1 second for tab to fully initialize
 });

@@ -72,6 +72,13 @@ window.addEventListener("message", (e) => {
 // Load a video into the iframe
 function loadVideo(videoId) {
   console.log("loadVideo called with:", videoId);
+  
+  // Don't reload if it's the same video
+  if (currentVideoId === videoId && playerReady) {
+    console.log("Same video already loaded and ready, skipping reload");
+    return;
+  }
+  
   currentVideoId = videoId;
   const iframe = ensureIframe();
   playerReady = false; // will flip true when we receive onReady
@@ -112,13 +119,13 @@ function loadVideo(videoId) {
       }), "*");
     }, 500);
     
-    // Fallback: if still not ready after 2 seconds, mark as ready anyway
+    // Fallback: if still not ready after 3 seconds, mark as ready anyway
     setTimeout(() => {
       if (!playerReady) {
         console.log("Timeout reached, marking player as ready");
         playerReady = true;
       }
-    }, 2000);
+    }, 3000);
   }, { once: true });
 }
 
@@ -144,6 +151,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendCommand("pauseVideo");
     }
     playerContainer.style.display = isPlayerVisible ? "block" : "none";
+    
+    // If videoId is included in the toggle message, load it
+    if (msg.videoId && isPlayerVisible) {
+      console.log("Loading video from toggle message:", msg.videoId);
+      loadVideo(msg.videoId);
+    }
   }
   if (msg.type === "LOAD_VIDEO" && isPlayerVisible) {
     const videoId = msg.videoId;
@@ -153,11 +166,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // (We don't need to send a response in these cases)
 });
 
-// When a new tab content script loads, it should check if the player should be visible (in case it was already toggled on)
+// When a new tab content script loads, it should check if the player should be visible and load current video
 chrome.runtime.sendMessage({ type: "GET_PLAYER_STATE" }, (res) => {
   if (res?.isOpen) {
     isPlayerVisible = true;
     playerContainer.style.display = "block";
+    // Also request the current video to be loaded
+    chrome.runtime.sendMessage({ type: "GET_CURRENT_VIDEO" }, (videoRes) => {
+      if (videoRes?.videoId) {
+        console.log("Loading current video on new tab:", videoRes.videoId);
+        loadVideo(videoRes.videoId);
+      }
+    });
   }
 });
 
