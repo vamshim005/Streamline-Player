@@ -3,15 +3,19 @@
 /* Container for the mini player */
 .mini-player-container {
   position: fixed;
-  width: 400px;
+  width: 320px; /* Slimmer container */
   /* height will adjust based on content; video iframe height is set to 225px via attributes or inline style */
-  background: #212121; /* dark background similar to YouTube theater mode */
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(147, 51, 234, 0.15)); /* blue gradient */
+  backdrop-filter: blur(15px); /* stronger glassmorphism effect */
+  -webkit-backdrop-filter: blur(15px); /* Safari support */
   color: #fff;
-  border: 1px solid #444;
-  border-radius: 4px;
-  z-index: 999999; /* ensure it stays on top of page content */
-  font-family: Arial, sans-serif;
-  font-size: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.2);
+  z-index: 2147483647; /* maximum z-index */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
 }
 
 /* Corner positions (10px margin from edges) */
@@ -24,30 +28,161 @@
 .mini-player-header {
   display: flex;
   align-items: center;
-  padding: 4px;
-  background: #333;
-  border-bottom: 1px solid #444;
+  padding: 10px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(147, 51, 234, 0.2));
+  border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
+
 .mini-player-header input {
   flex: 1;
-  padding: 2px 4px;
+  padding: 8px 12px;
   font-size: 13px;
-  color: #000;
+  font-weight: 500;
+  color: #ffffff !important; /* Force bright white text */
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(147, 51, 234, 0.25));
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  outline: none;
 }
+
+.mini-player-header input::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 400;
+}
+
+.mini-player-header input:focus {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), rgba(147, 51, 234, 0.35));
+  border-color: rgba(59, 130, 246, 0.6);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
 .mini-player-header button {
-  margin-left: 4px;
-  padding: 2px 6px;
+  margin-left: 6px;
+  padding: 8px 12px;
   font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(147, 51, 234, 0.3));
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+.mini-player-header button:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.4), rgba(147, 51, 234, 0.4));
+  border-color: rgba(59, 130, 246, 0.6);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.mini-player-header button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 /* Video area */
 .mini-player-video {
   position: relative;
+  border-radius: 0 0 16px 16px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
 }
+
 .mini-player-video iframe {
   /* The iframe will be absolutely positioned within its container */
   display: block;
   width: 100%;
+  border: none;
+  border-radius: 0 0 16px 16px;
   /* height set dynamically via inline style */
+}
+
+/* Add a subtle loading shimmer effect */
+.mini-player-video::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  animation: shimmer 2s infinite;
+  z-index: 1;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+/* Hide shimmer when video is loaded */
+.mini-player-video.loaded::before {
+  display: none;
+}
+
+/* Enhanced text visibility and modern touches */
+.mini-player-container * {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Smooth transitions for all interactive elements */
+.mini-player-container {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Hover effect for the entire container */
+.mini-player-container:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(59, 130, 246, 0.3);
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 480px) {
+  .mini-player-container {
+    width: 280px;
+    font-size: 12px;
+  }
+  
+  .mini-player-header {
+    padding: 8px;
+  }
+  
+  .mini-player-header input {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  
+  .mini-player-header button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .mini-player-container {
+    background: rgba(0, 0, 0, 0.95);
+    border: 2px solid #ffffff;
+  }
+  
+  .mini-player-header input {
+    background: rgba(255, 255, 255, 0.3);
+    border: 2px solid #ffffff;
+  }
+  
+  .mini-player-header button {
+    background: rgba(255, 255, 255, 0.4);
+    border: 2px solid #ffffff;
+  }
 }
