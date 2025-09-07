@@ -34,6 +34,7 @@ const iframeContainer = playerContainer.querySelector("#mini-yt-iframe");
 // --- 2. YouTube embed (no external script) ---
 let playerIframe = null;
 let playerReady = false;
+let playerState = -1; // -1 unstarted, 0 ended, 1 playing, 2 paused
 let currentVideoId = null;
 
 // Create the iframe once
@@ -46,46 +47,88 @@ function ensureIframe() {
   playerIframe.style.height = currentHeight + "px";
   iframeContainer.innerHTML = ""; // clear container
   iframeContainer.appendChild(playerIframe);
-
-  // Listen for ready messages from the player
-  window.addEventListener("message", (e) => {
-    // YouTube posts messages as strings; some sites prefix data with ")]}'"
-    let data = e.data;
-    if (typeof data === "string") {
-      try { data = JSON.parse(data.replace(/^\)\]\}'/, "")); } catch { /* ignore */ }
-    }
-    if (!data || typeof data !== "object") return;
-
-    if (data.event === "onReady") {
-      playerReady = true;
-      // Autoplay if we already have a videoId
-      if (currentVideoId) sendCommand("playVideo");
-    }
-  }, false);
-
   return playerIframe;
 }
 
+// Listen for ready messages from the player (set up once)
+window.addEventListener("message", (e) => {
+  // YouTube posts messages as strings; some sites prefix data with ")]}'"
+  let data = e.data;
+  if (typeof data === "string") {
+    try { data = JSON.parse(data.replace(/^\)\]\}'/, "")); } catch { /* ignore */ }
+  }
+  if (!data || typeof data !== "object") return;
+
+  if (data.event === "onReady") {
+    playerReady = true;
+    console.log("YouTube player ready");
+  }
+  if (data.event === "infoDelivery" && typeof data.info?.playerState === "number") {
+    playerState = data.info.playerState;
+    console.log("Player state:", playerState);
+  }
+}, false);
+
 // Load a video into the iframe
 function loadVideo(videoId) {
+  console.log("loadVideo called with:", videoId);
   currentVideoId = videoId;
   const iframe = ensureIframe();
   playerReady = false; // will flip true when we receive onReady
+  playerState = -1; // reset player state to unstarted
+  console.log("Reset player state - ready:", playerReady, "state:", playerState);
 
   // Build an embed URL with JS API enabled
   const params = new URLSearchParams({
     enablejsapi: "1",
     playsinline: "1",
-    autoplay: "1",
+    autoplay: "0",
     origin: location.origin // good practice; not strictly required
   });
 
   iframe.src = `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+  
+  // Send listening message after iframe loads
+  iframe.addEventListener("load", () => {
+    console.log("Iframe loaded, sending listening message");
+    // Send the listening message to establish handshake
+    iframe.contentWindow.postMessage(JSON.stringify({
+      event: "listening",
+      id: "mini-yt"
+    }), "*");
+    
+    // Also try sending it a few times with delays (YouTube API quirk)
+    setTimeout(() => {
+      iframe.contentWindow.postMessage(JSON.stringify({
+        event: "listening", 
+        id: "mini-yt"
+      }), "*");
+    }, 100);
+    
+    setTimeout(() => {
+      iframe.contentWindow.postMessage(JSON.stringify({
+        event: "listening",
+        id: "mini-yt" 
+      }), "*");
+    }, 500);
+    
+    // Fallback: if still not ready after 2 seconds, mark as ready anyway
+    setTimeout(() => {
+      if (!playerReady) {
+        console.log("Timeout reached, marking player as ready");
+        playerReady = true;
+      }
+    }, 2000);
+  }, { once: true });
 }
 
 // Send a command to the iframe player
 function sendCommand(func, args = []) {
-  if (!playerIframe || !playerIframe.contentWindow) return;
+  if (!playerIframe || !playerIframe.contentWindow) {
+    console.log("Cannot send command - no iframe or contentWindow");
+    return;
+  }
+  console.log("Sending command:", func, args);
   playerIframe.contentWindow.postMessage(JSON.stringify({
     event: "command",
     func,
@@ -104,6 +147,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === "LOAD_VIDEO" && isPlayerVisible) {
     const videoId = msg.videoId;
+    console.log("Loading new video:", videoId);
     loadVideo(videoId);
   }
   // (We don't need to send a response in these cases)
@@ -163,20 +207,31 @@ document.addEventListener("keydown", (e) => {
     case " ":
       // Shift + Space: Play/Pause toggle
       e.preventDefault();
+      console.log("Shift+Space pressed, playerReady:", playerReady, "playerState:", playerState);
       if (playerReady) {
-        // simple toggle: try pause then play
-        sendCommand("pauseVideo");
-        setTimeout(() => sendCommand("playVideo"), 0);
+        if (playerState === 1) {
+          console.log("Pausing video");
+          sendCommand("pauseVideo");
+        } else {
+          console.log("Playing video");
+          sendCommand("playVideo");
+        }
+      } else {
+        console.log("Player not ready yet, trying to play anyway");
+        // Fallback: try to play even if not "ready" - sometimes works
+        sendCommand("playVideo");
       }
       break;
     case "ArrowUp":
       // Shift + Up: Previous video
       e.preventDefault();
+      console.log("Navigating to previous video");
       chrome.runtime.sendMessage({ type: "NAVIGATE", direction: "PREV" });
       break;
     case "ArrowDown":
       // Shift + Down: Next video
       e.preventDefault();
+      console.log("Navigating to next video");
       chrome.runtime.sendMessage({ type: "NAVIGATE", direction: "NEXT" });
       break;
     case "ArrowLeft":
